@@ -1,0 +1,66 @@
+name: Build Windows launcher
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Generate Windows runner
+        run: flutter create --platforms=windows .
+
+      - name: Set window title and size
+        shell: pwsh
+        run: |
+          $p = "windows/runner/main.cpp"
+          $c = Get-Content $p -Raw
+          $c = $c -replace 'Win32Window::Size size\(\d+, \d+\);', 'Win32Window::Size size(1280, 800);'
+          $c = $c -replace 'L"[^"]*"', 'L"ग्रंथ प्रबंधन"', 1
+          # The first L"..." after Size is the window title in current Flutter templates.
+          Set-Content -Path $p -Value $c -Encoding utf8
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Build release
+        run: flutter build windows --release
+
+      - name: Zip launcher
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/windows/x64/runner/Release")) { throw "Release folder missing" }
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath Granth-Windows.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Granth-Windows
+          path: Granth-Windows.zip
+          if-no-files-found: error
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-v1.0.${{ github.run_number }}
+          name: ग्रंथ प्रबंधन Windows ${{ github.run_number }}
+          files: Granth-Windows.zip
+          body: |
+            Windows launcher of ग्रंथ प्रबंधन.
+            Unzip and run the .exe. Same Flutter app as Android.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
